@@ -1,0 +1,450 @@
+---
+title: "Assign_2"
+author: "23370209_Franco Meng "
+date: "2024-09-29"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+library(rstan)
+library(bayesplot)
+```
+```{r}
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+TASK 1 
+
+
+```{r}
+dat <- read.table("Golf.csv", header=TRUE, sep = ",")
+plot(y~m, dat)
+```
+
+
+
+```{stan task_1a, output.var="task_1a", cache=TRUE}
+  data{
+    int <lower=1> n;
+    vector[n] x;
+    int<lower=1> m[n];
+    int<lower=0> y[n];
+    real <lower=0> alpha;
+    real <lower=0> beta;
+  }
+
+  parameters{
+    real<lower=0, upper=1> U;    
+    real<lower=U, upper=1> L;
+    real<lower=0> a;
+    real<lower=0> b; 
+     
+  }
+
+  model{
+    for (i in 1:n){
+      y[i] ~ binomial(m[i], L+ (U-L) / (1 + (x[i]/b)^(-a)));
+    }
+    // prior
+    L ~ beta(alpha, beta); // This is not a hierarchical model, I have defined Alpha Beta value in Data.in, in order to just test different values 
+    U ~ beta(alpha, beta); // This is not a hierarchical model, I have defined Alpha Beta value in Data.in, in order to just test different values 
+    a ~ normal(0,1000);
+    b ~ normal(0,1000);
+  } 
+```
+
+
+```{r}
+n <- NROW(dat)
+data.in <- list(x=dat$distance, m=dat$m, y=dat$y, alpha=1, beta=1, n=n)
+model.fit1 <- sampling(task_1a, data=data.in, iter=10000, warmup = 2000)
+```
+
+```{r}
+check_hmc_diagnostics(model.fit1)
+```
+
+```{r}
+posterior_1 <- as.array(model.fit1)
+```
+
+```{r}
+color_scheme_set("mix-blue-red")
+mcmc_trace(posterior_1, pars = c("U", "L" , "a" , "b"))
+```
+
+
+```{r}
+mcmc_dens(posterior_1, pars = c("U", "L" , "a" , "b"))
+```
+
+
+```{r}
+mcmc_acf(posterior_1, pars = c("U", "L" , "a" , "b"))
+```
+
+```{r}
+print(model.fit1, pars = c("U", "L" , "a" , "b"), digits=5)
+```
+
+
+I have chosen the non-informative proper normal priors with mean 0 and sd 1000 for a and b.
+Which are : a ~ Normal (0, 1000^2),  b ~ Normal (0, 1000^2), variance being 1000^2. These are in fact truncated normal due to a and b declared to be greater than 0.
+
+For the L(lower) and U(upper) asymptote as defined in the task. I have used gamma distribution where alpha = 0.001, beta = 0.001 as priors for both parameters, 
+
+
+
+With 4 chains of 10000 Iterations (2000 warm-ups) each, my Bayesian estimate for parameters are:
+
+U: 0.08
+L: 0.99
+a: 2.2
+b: 6.3
+
+
+```{stan task_1b, output.var="task_1b", cache=TRUE}
+  data{
+    int <lower=1> n;
+    vector[n] x;
+    int<lower=1> m[n];
+    int<lower=0> y[n];
+    real <lower=0> alpha;
+    real <lower=0> beta;
+  }
+
+  parameters{
+    real<lower=0, upper=1> U;    
+    real<lower=U, upper=1> L;
+    real<lower=0> a;
+    real<lower=0> b; 
+    real<lower=0> g; 
+     
+  }
+
+  model{
+    for (i in 1:n){
+      y[i] ~ binomial(m[i], L+ (U-L) / (1 + g * (x[i]/b)^(-a))^(1/g));
+    }
+    L ~ beta(alpha, beta); // This is not a hierarchical model, I have defined Alpha Beta value in Data.in, in order to just test different values 
+    U ~ beta(alpha, beta); // This is not a hierarchical model, I have defined Alpha Beta value in Data.in, in order to just test different values 
+    a ~ normal(0,1000);
+    b ~ normal(0,1000);
+    g ~ normal(0,1000);
+  } 
+```
+
+
+
+
+
+```{r}
+model.fit1b <- sampling(task_1b, data=data.in, iter=10000, warmup = 2000)
+```
+
+```{r}
+check_hmc_diagnostics(model.fit1b)
+```
+
+
+
+
+```{r}
+posterior_1b <- as.array(model.fit1b)
+```
+
+```{r}
+color_scheme_set("mix-blue-red")
+mcmc_trace(posterior_1b, pars = c("U", "L" , "a" , "b", "g"))
+```
+
+
+
+```{r}
+mcmc_dens(posterior_1b, pars = c("U", "L" , "a" , "b", "g"))
+```
+
+
+```{r}
+mcmc_acf(posterior_1b, pars = c("U", "L" , "a" , "b", "g"))
+```
+
+```{r}
+print(model.fit1b, pars = c("U", "L" , "a" , "b", "g"), digits=5)
+```
+
+```{r}
+extract_g <- extract(model.fit1b)$g
+mean(abs(extract_g - 1) > 0.03)
+```
+
+I have chosen the non-informative proper normal priors with mean 0 and sd 1000 for a, b and g.
+Which are : a ~ Normal (0, 1000^2),  b ~ Normal (0, 1000^2),g ~ Normal (0, 1000^2), variance being 1000^2. These are in fact truncated normal due to a, b and g declared to be greater than 0.
+
+For the L(lower) and U(upper) asymptote as defined in the task. I have used gamma distribution where alpha = 0.001, beta = 0.001 as priors for both parameters, 
+
+
+
+With 4 chains of 10000 Iterations (2000 warm-ups) each, my Bayesian estimate for parameters are:
+
+U: 0.04
+L: 0.98
+a: 1.7
+b: 5.7
+g: 0.5
+
+
+The posterior probability that g differs from 1 by more than 3% is 0.98. Based on this result, I would prefer the second model. Where the introduction of g parameter may help the model to control the influences of distance on the success probability. 
+
+```{r}
+ fit1b <- extract(model.fit1b, c("U", "L" , "a" , "b", "g"))
+ fit1b <- c(mean(fit1b$U),mean(fit1b$L),mean(fit1b$a),mean(fit1b$b),mean(fit1b$g))
+ names(fit1b) <- c("U", "L" , "a" , "b", "g")
+xgr <- with(dat, seq(from = 0, to = 30, length = 601))
+line_to_plot <- data.frame(distance = xgr, ob_successful_proportion = fit1b["L"]+ (fit1b["U"]-fit1b["L"]) / (1 + fit1b["g"] * (xgr/fit1b["b"])^(-fit1b["a"]))^(1/fit1b["g"]))
+
+```
+
+
+```{r,fig.width = 10,fig.height=6, dpi=300 }
+data_to_plot <- data.frame(distance = dat$distance, ob_successful_proportion = dat$y/dat$m)
+#data_to_plot
+ggplot() +
+  geom_point(data = data_to_plot, aes(x = distance, y= ob_successful_proportion), color = "#FAD510", size =2) +
+  geom_line(data = line_to_plot, aes(x=distance, y =ob_successful_proportion ), color = "#5BBCD6", size = 1) +
+  ggtitle("Task 1 (c)") +
+  labs(x = "Distance", y = "Probability") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+I have made the plot by using the second (preferred) model.
+Based on the plot, the model look sensible over the range of the observed distances.
+It seems safe to extrapolate the model the distances larger than observed, where the line start to flatten out and approaching to 0, it also seems safe to extrapolate to the shorter distance. but probably not when distance is 0 which means the ball is already in the hole.. But it is nice and realistic to see the model not modeling the probably of success to be 1 when distance is approaching 0. 
+
+
+
+
+```{r}
+dat_task2 <- read.table("SockeyeSR.csv", header=TRUE, sep = ",")
+dat_task2 <- dat_task2[!dat_task2$year == 1951,]
+dat_task2
+```
+
+```{r}
+plot(recruits~spawners, dat_task2)
+```
+
+
+```{stan task_2a, output.var="task_2a", cache=TRUE}
+  data{
+    int<lower=1> n;
+    vector[n] x;
+    vector[n] y;
+  }
+  
+  parameters{
+    real<lower=0> tau;
+    real alpha;
+    real beta;
+  }
+  
+  transformed parameters{
+    vector[n] mu;
+
+    real<lower=0> sigma;
+    real<lower=0> sigma2;
+    sigma2 = 1/tau;
+    sigma = sqrt(sigma2);
+    mu = alpha + beta * x;
+
+  }
+  
+  model{
+    // likelihood
+    for(i in 1:n){
+    log(y[i]/x[i])  ~ normal(mu[i], sigma);
+  }
+
+    alpha ~ normal(0, 1000);
+    beta ~ normal(0, 1000);
+    tau ~ gamma(0.001, 0.001);
+  }
+```
+
+
+```{r}
+n <- NROW(dat_task2)
+data.in2a <- list(x=dat_task2$spawners, y=dat_task2$recruits, n=n)
+model.fit2a <- sampling(task_2a, data=data.in2a, iter=10000, warmup = 2000)
+```
+
+```{r}
+check_hmc_diagnostics(model.fit2a)
+```
+
+
+```{r}
+posterior_2a <- as.array(model.fit2a)
+```
+
+```{r}
+color_scheme_set("mix-blue-red")
+mcmc_trace(posterior_2a, pars = c("alpha", "beta", "sigma"))
+```
+
+
+
+```{r}
+mcmc_dens(posterior_2a, pars = c("alpha", "beta", "sigma"))
+```
+
+
+```{r}
+mcmc_acf(posterior_2a, pars = c("alpha", "beta", "sigma"))
+```
+
+```{r}
+print(model.fit2a, pars = c("alpha", "beta", "sigma"), digits=8)
+```
+
+
+
+```{r}
+median(extract(model.fit2a)$alpha)
+median(extract(model.fit2a)$beta)
+median(extract(model.fit2a)$sigma)
+```
+
+
+Prior Choices:
+
+Alpha : Normal distribution with mean of 0 and variance 1000^2
+Beta : Normal distribution with mean of 0 and variance 1000^2
+Sigma : I have transformed the standard deviation into a precious parameter Tao, and used normal gamma prior alpha = 0.001, beta = 0.001 on the precision parameter Tao. Then transformed back to SD. sigma = sqrt(1/tau);
+
+With 4 chains of 10000 Iterations (2000 warm-ups) each, my Bayesian estimate for parameters are:
+
+Estimated Posterior Mean :
+Alpha: 1.32
+Beta: -0.00091
+Sigma: 0.43
+
+Estimated Posterior Median :
+Alpha:  1.32
+Beta: -0.00091
+Sigma:  0.42
+
+50% Credible Interval :
+Alpha: 1.18, 1.46
+Beta: -0.001,-0.0006
+Sigma: 0.38,0.47
+
+
+
+```{r}
+data_to_plot <- data.frame(x = dat_task2$spawners, log_y_x = log(dat_task2$recruits/dat_task2$spawners))
+fit2b <- extract(model.fit2a,  c("alpha", "beta", "sigma"))
+fit2b_mean <- c(mean(fit2b$alpha),mean(fit2b$beta),mean(fit2b$sigma))
+names(fit2b_mean) <- c("alpha_mean", "beta_mean" , "sigma_mean" )
+fit2b_median <- c(median(fit2b$alpha),median(fit2b$beta),median(fit2b$sigma))
+names(fit2b_median) <- c("alpha_median", "beta_median" , "sigma_median" )
+
+```
+
+```{r}
+xgr <- with(dat_task2, seq(from = 87, to = 1066, length = 601))
+line_to_plot_mean <- data.frame(x = xgr, y = fit2b_mean["alpha_mean"]+ fit2b_mean["beta_mean"]*xgr)
+line_to_plot_median <- data.frame(x = xgr, y = fit2b_median["alpha_median"]+ fit2b_median["beta_median"]*xgr)
+posterior_mean_given_data <- function(xgr) {
+  sapply(xgr, function(x) {
+    mean(fit2b$alpha + x*fit2b$beta)
+  })
+}
+line_to_plot_posterior_mean_given_data <- data.frame(x = xgr, y = posterior_mean_given_data(xgr))
+```
+
+
+
+Just an extra step to ensure above calculation of Mu is correct by using original data, the returned the result should be the same with Stanfit Mu[i] estimates
+```{r}
+posterior_mean_given_data(data_to_plot$x)
+```
+
+
+
+```{r,fig.width = 10,fig.height=6, dpi=300 }
+
+#data_to_plot
+ggplot() +
+  geom_point(data = data_to_plot, aes(x = x, y= log_y_x), color = "#FAD510", size =1) +
+  geom_line(data = line_to_plot_mean, aes(x=x, y =y ), color = "#5BBCD6", size = 1.2, alpha= 0.6) +
+  geom_line(data = line_to_plot_median, aes(x=x, y =y ), color = "green", size = 1.2, alpha= 0.8,linetype = "dotted") +
+  geom_line(data = line_to_plot_posterior_mean_given_data, aes(x=x, y =y ), color = "#CB2314", size = 1.2, alpha= 0.8,linetype = "dotted") +
+  ggtitle("Task 2 (b)") +
+  labs(x = "Number of Spawning Fish", y = "Log (Recruits/Spawning)") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+
+
+Overall the model seems dealt with some heteroscedasticity issues but still not ideally. There are still increasing variability along with increasing in number of Spawning fish, particularly around 800 Range, the data points year 1958 and 1964 were the only two years, where the number of recruits were less than number of Spawning. which directly lead to the log result in negative range. (1958: 819 vs 644; 1964: 848 vs 627), and in the year of 1944, the measurement was 824 vs 3071. 
+
+
+For this particular task, by using either mean or median estimate of alpha / beta returns very similar result. 
+But if the posterior distribution of Alpha or Beta are clearly not symmetric, Median may be better option to depicting the response, in order to reduce effect of outliers if there were any. 
+
+```{r}
+sigma_mean <- mean(extract(model.fit2a)$sigma)
+posterior_mean_given_data_2 <- function(xgr) {sapply(xgr, function(x) {mean(exp(fit2b$alpha + x*fit2b$beta + 1/2 * (fit2b$sigma)^2))
+  })
+}
+data_to_plot_c <- data.frame(x = dat_task2$spawners, y = dat_task2$recruits)
+line_to_plot_c1 <- data.frame(x = xgr, y = xgr * exp(posterior_mean_given_data(xgr)))
+line_to_plot_c2 <- data.frame(x = xgr, y = xgr * exp(posterior_mean_given_data(xgr) + 1/2 * (sigma_mean^2) ))
+line_to_plot_c3 <- data.frame(x = xgr, y = xgr * posterior_mean_given_data_2(xgr))
+```
+
+
+
+```{r,fig.width = 10,fig.height=6, dpi=300}
+
+#data_to_plot
+ggplot() +
+  geom_point(data = data_to_plot_c, aes(x = x, y= y), color = "#FAD510", size =1) +
+  geom_line(data = line_to_plot_c1, aes(x=x, y =y ), color = "#5BBCD6", size = 1, alpha= 0.6) +
+  geom_line(data = line_to_plot_c2, aes(x=x, y =y ), color = "red", size = 1, alpha= 0.4) +
+  geom_line(data = line_to_plot_c3, aes(x=x, y =y ), color = "green", size = 1, alpha= 0.2) +
+  ggtitle("Task 2 (c)") +
+  labs(x = "Number of Spawning Fish", y = "Number of Recruits") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+
+On the original scale of the data , these lines estimate the number of recruits (in thousands) based on number of Spawning Fish (in thousands) :
+
+The blue line is making estimate based on the posterior mean of m(x;alpha, beta) given the data, from the log(y/x) ~ x linear model.
+The red line is adding additional uncertainty 'directly' onto the previous estimate (blue line), by incorporating posterior mean of sigma, essentially adding variance directly to the blue line estimate to better deal with heterosexuality.
+The green line may be the most suitable for our data, by taking into the account that the increasing variance seems to be proportional to the number of Spawning Fish, therefore the estimates are considering the effects of variability first, then calculate the mean for the response : number of Recruits.  

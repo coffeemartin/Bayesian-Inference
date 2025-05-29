@@ -1,0 +1,492 @@
+---
+title: "Assign_3"
+author: "23370209_Franco Meng "
+date: "2024-10-29"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(ggplot2)
+```
+```{r}
+##update.packages(checkBuilt=TRUE) 
+```
+
+
+```{r}
+library(rstan)
+library(bayesplot)
+```
+```{r}
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+TASK 1 
+
+
+```{r}
+dat <- read.table("Golf.csv", header=TRUE, sep = ",")
+plot(y~m, dat)
+```
+
+
+Qa : 
+Because the involvement with log in the logit function, here we consider factor change in X  (distance from the hole), rather than talking about X+1
+
+I have attached a handwritten calculation for this part.
+
+The odds of success (hitting into the hole) from a distance of a factor 'c' times distance x , are C^Beta1 times the odd of success from the distance at x. 
+
+Qb :
+
+
+```{stan, logitGLMQR, output.var="BinomialLogitGLMQR", cache=TRUE}
+  data{
+    int<lower=1> n; 
+    int<lower=1> p; 
+    matrix[n, p] x;
+    int<lower=0> y[n];
+    int<lower=0> mi[n]; 
+  }
+  
+  transformed data{
+    matrix[p, p] R = qr_thin_R(log(x));
+    real s = sqrt(n - 1.0);
+    matrix[p, p] R_ast = R/s;
+    matrix[n, p] Q_ast = qr_thin_Q(log(x))*s;
+    matrix[p, p] R_ast_inverse = inverse(R_ast);
+  }
+  
+  parameters{
+    vector[p] theta;  // regression coefficients for predictors
+  }
+  
+  model{
+     // likelihood
+     y  ~ binomial_logit(mi, Q_ast*theta);
+     
+     // priors
+     // Stan puts automatically flat priors on the thetas
+  }
+
+  generated quantities{
+    vector[p] beta = R_ast_inverse * theta;
+    real T = 0 ;
+    real y_rep[n];
+    real T_rep = 0;
+    y_rep = binomial_rng(mi, inv_logit(Q_ast*theta));
+    for(i in 1:n){
+         T += (y[i] - mi[i] * inv_logit(Q_ast*theta)[i] )^2 / (mi[i] * inv_logit(Q_ast*theta)[i] *(1-inv_logit(Q_ast*theta)[i]));
+         T_rep += (y_rep[i] - mi[i] * inv_logit(Q_ast*theta)[i] )^2 / (mi[i] * inv_logit(Q_ast*theta)[i] *(1-inv_logit(Q_ast*theta)[i]));
+      
+    }
+  }
+```
+
+
+
+```{r}
+mi <- dat$m
+y <- dat$y
+x <- cbind(exp(1), dat$distance)
+data.in <- list(x=x, mi=mi, y=y, n=NROW(x), p=NCOL(x))
+model.fit <- sampling(BinomialLogitGLMQR, data=data.in,iter=10000, warmup = 2000)
+```
+
+
+```{r}
+print(model.fit, digits=5, pars="beta")
+```
+
+```{r}
+check_hmc_diagnostics(model.fit)
+```
+
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+posterior <- as.matrix(model.fit)
+mcmc_dens(posterior, regex_pars = "beta")
+```
+```{r}
+mcmc_acf(posterior,regex_pars = "beta")
+```
+```{r}
+mcmc_trace(posterior, regex_pars = "beta")
+```
+
+
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+##plot(y/m ~ distance, dat)
+##beta <- colMeans(extract(model.fit, "beta")[[1]])
+##curve(1/(1+exp(-(beta[1]+beta[2]*log(x)))), from = 0, to = 25, n=301, add=TRUE)
+```
+
+```{r}
+ fit1d <- colMeans(extract(model.fit, "beta")[[1]])
+ names(fit1d) <- c("Beta0", "Beta1")
+ xgr <- with(dat, seq(from = 0, to = 25, length = 601))
+ line_to_plot <- data.frame(distance = xgr, ob_successful_proportion = 1/(1+exp(-(fit1d["Beta0"]+fit1d["Beta1"]*log(xgr)))))
+
+```
+
+
+```{r}
+data_to_plot <- data.frame(distance = dat$distance, ob_successful_proportion = dat$y/dat$m)
+#data_to_plot
+ggplot() +
+  geom_point(data = data_to_plot, aes(x = distance, y= ob_successful_proportion), color = "#FAD510", size =2) +
+  geom_line(data = line_to_plot, aes(x=distance, y =ob_successful_proportion ), color = "#5BBCD6", size = 1) +
+  ggtitle("Task 1 (d)") +
+  labs(x = "Distance", y = "Probability") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+
+```{r}
+test <- extract(model.fit, "y_rep")
+
+mean(extract(model.fit)$T<extract(model.fit)$T_rep)
+```
+
+
+
+--------------------------------------
+
+
+```{r}
+BAR <- read.csv("bicycles.csv")
+BAR$x1 <- as.numeric(BAR$BikeRoute == "yes")
+BAR$x2 <- as.numeric(BAR$Type == "FairlyBusy")
+BAR$x3 <- as.numeric(BAR$Type == "Busy")
+BAR$mi <- BAR$Bicycles + BAR$Other
+```
+
+
+```{stan task2, output.var="task2", cache=TRUE}
+data{
+  int<lower=0> n;              // number of observations
+  int<lower=0> m[n];           // the number of trials
+  int<lower=0> y[n];  
+  matrix[n,5] X; 
+}
+
+parameters{
+  vector[6] beta;
+  real<lower=0> sigma_alpha;
+  vector[n] alpha0;
+  //vector[n] logit_theta;
+}
+
+transformed parameters{
+  vector[n] theta;
+  for (i in 1:n) 
+  theta[i] = inv_logit(beta[1] + alpha0[i] + X[i, 1] * beta[2] + X[i, 2] * beta[3] + X[i, 3] * beta[4] + X[i, 4] * beta[5] + X[i, 5] * beta[6]);
+}
+
+model{
+  y ~ binomial(m, theta); // Binomial likelihood with logit link
+  beta ~ normal(0, 100);         // priors for beta1 to beta5
+  alpha0 ~ normal(0, sigma_alpha); // random intercepts
+  sigma_alpha ~ cauchy(0, 5);  
+}
+
+
+generated quantities {
+  real y_pred[n];                     // Posterior predictive distribution for each observation
+  vector[n] theta_new;
+  theta_new = inv_logit(alpha0 + beta[1] + 1 * beta[4]) ;
+  y_pred = binomial_rng(200, theta_new);  // Predictive distribution with m = 200
+
+}
+
+
+```
+
+```{r}
+mi <- BAR$m
+y <- BAR$Bicycles
+x <- cbind(BAR$x1, BAR$x2, BAR$x3, BAR$x1*BAR$x2, BAR$x1*BAR$x3)
+data.in_2 <- list(X=x, m=mi, y=y, n=NROW(x))
+model.fit_2 <- sampling(task2, data=data.in_2, iter=10000, warmup = 2000)
+```
+
+```{r}
+check_hmc_diagnostics(model.fit_2)
+```
+
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+posterior_2 <- as.matrix(model.fit_2)
+mcmc_dens(posterior_2, regex_pars = "beta")
+```
+
+```{r}
+
+mcmc_dens(posterior_2, pars = c("sigma_alpha"))
+```
+
+
+```{r}
+mcmc_acf(posterior_2,regex_pars = c("beta"))
+mcmc_acf(posterior_2,pars = "sigma_alpha")
+```
+```{r}
+mcmc_trace(posterior_2,regex_pars = c("beta"))
+```
+
+
+```{r}
+print(model.fit_2, digits=5, pars=c("beta","sigma_alpha"))
+```
+```{r}
+fit2d <- c(mean(colMeans(extract(model.fit_2, "alpha0")[[1]])), colMeans(extract(model.fit_2, "beta")[[1]]))
+busy_bikeroute    <- c(1,1,1,0,1,0,1)
+busy_no_bikeroute <- c(1,1,0,0,1,0,0)
+sum(fit2d*busy_bikeroute)
+sum(fit2d*busy_no_bikeroute)
+exp(sum(fit2d*busy_bikeroute)) / exp (sum(fit2d*busy_no_bikeroute))
+exp(fit2d[3]+fit2d[7])
+
+```
+
+
+
+
+```{r}
+data_to_plot <- data.frame(new = as.vector(extract(model.fit_2, "y_pred")[[1]]))
+ggplot() +
+  geom_histogram(data = data_to_plot, aes(x = new , y = after_stat(density)), color = "#FAD510", size =1, binwidth = 1) +
+  ggtitle("Task 2 (b)(5) - Posterior Predictive Distribution") +
+  labs(x = "Number of Bicycles", y = "Probability")+   scale_x_continuous(n.breaks=30) +
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+```{r}
+test_3 <- extract(model.fit_2, "beta[1]")[[1]] + extract(model.fit_2, "beta[4]")[[1]] 
+p <- exp(test_3) / (1+exp(test_3))
+rbinom(1,200,p)
+```
+
+
+
+
+
+
+
+TASK 3
+-----------------------------------------------------------------------------------------------------
+
+```{r}
+dat.full <- read.csv("pregnancies.csv")
+```
+
+
+```{r}
+NS <- sum(dat.full$Smoker)
+NNS <- sum(dat.full$Nonsmoker)
+n <- length(dat.full$Nonsmoker)
+yS <- dat.full$Smoker
+yNS <- dat.full$Nonsmoker
+data.in <- list(n = n, NS = NS, NNS = NNS, yS = yS, yNS=yNS)
+```
+
+
+
+```{stan task3_final, output.var="task3_final", cache=TRUE}
+  data {
+  int<lower=0> NS;  
+  int<lower=0> NNS; 
+  int <lower=1> n; 
+  int<lower=0> yS[n];     
+  int<lower=0> yNS[n];    
+}
+
+parameters {
+  real<lower=0> muS;
+  real<lower=0> thetaS;
+  real<lower=0> muNS;
+  real<lower=0> thetaNS;
+}
+
+transformed parameters {
+  real<lower=2> alphaS = 2 + 2 * thetaS; 
+  real<lower=0> betaS = muS * (1 + 2 * thetaS);
+  real<lower=2> alphaNS = 2 + 2 * thetaNS;
+  real<lower=0> betaNS = muNS * (1 + 2 * thetaNS);
+
+  simplex[n] probspiS; // special data structure in Stan to hold values that
+  simplex[n] probspiNS; // special data structure in Stan to hold values that
+  real sumprobpiS = 0;
+  real sumprobpiNS = 0;
+  probspiS[1] = alphaS/(alphaS+betaS);// probability of being in first category
+  probspiNS[1] = alphaNS/(alphaNS+betaNS);// probability of being in first category
+  sumprobpiS += probspiS[1];
+  sumprobpiNS += probspiNS[1];
+  for(i in 2:(n-1)){
+    probspiS[i] = probspiS[i-1] * (betaS+i-2)/(betaS+alphaS+i-1); // this is different to the formula in the given doc due to R indexed from 1, where the given formula in doc index from 0 
+    probspiNS[i] = probspiNS[i-1] * (betaNS+i-2)/(betaNS+alphaNS+i-1); 
+    sumprobpiS += probspiS[i];
+    sumprobpiNS += probspiNS[i];
+    }
+    probspiS[n] = 1 - sumprobpiS; // probability of being in last category
+    probspiNS[n] = 1 - sumprobpiNS;
+    
+  }
+
+
+model {
+  // Priors
+  muS ~ exponential(0.1);
+  thetaS ~ exponential(0.1);
+  muNS ~ exponential(0.1);
+  thetaNS ~ exponential(0.1);
+
+  // Likelihoods using multinomial
+  yS ~ multinomial(probspiS);
+  yNS ~ multinomial(probspiNS);
+}
+
+generated quantities{
+    real TS = 0 ;
+    real TNS = 0 ;
+    real ys_rep[n];
+    real yns_rep[n];
+    real TS_rep = 0;
+    real TNS_rep = 0;
+    int ps;
+    int pns;
+    real probpiS_new;
+    real probpiNS_new;
+    int ys_new;
+    int yns_new;
+    ys_rep = multinomial_rng(probspiS,NS);
+    yns_rep = multinomial_rng(probspiNS,NNS);
+    for(i in 1:n){
+        TS += (yS[i]-NS*probspiS[i])^2 / (NS*probspiS[i]*(1-probspiS[i]));
+        TNS += (yNS[i]-NNS*probspiNS[i])^2 / (NNS*probspiNS[i]*(1-probspiNS[i]));
+        TS_rep += (ys_rep[i]-sum(ys_rep)*probspiS[i])^2 / (sum(ys_rep)*probspiS[i]*(1-probspiS[i]));
+        TNS_rep += (yns_rep[i]-sum(yns_rep)*probspiNS[i])^2 / (sum(yns_rep)*probspiNS[i]*(1-probspiNS[i]));
+      }
+    ps = TS>TS_rep;
+    pns = TNS>TNS_rep;
+    
+    probpiS_new = beta_rng(alphaS, betaS);
+    probpiNS_new = beta_rng(alphaNS, betaNS);
+    
+    ys_new = neg_binomial_rng(1, probpiS_new/(1.0-probpiS_new) ) + 1 ;  // as in this unit Geometric distribution excluds the succee, so here I've added 1 back to be comparable with original data.
+    yns_new = neg_binomial_rng(1, probpiNS_new/(1.0-probpiNS_new) ) + 1 ;
+    
+}
+
+```
+
+```{r}
+fit4 <- sampling(task3_final, data = data.in, iter = 10000, warmup = 2000)
+```
+```{r}
+check_hmc_diagnostics(fit4)
+```
+
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+posterior4 <- as.matrix(fit4)
+mcmc_dens(posterior4, pars = c("muS", "thetaS", "muNS","thetaNS") )
+```
+
+```{r}
+mcmc_acf(posterior4,pars = c("muS", "thetaS", "muNS","thetaNS"))
+```
+
+
+```{r}
+mcmc_trace(posterior4,pars = c("muS", "thetaS", "muNS","thetaNS"))
+```
+
+Question (a)
+
+```{r}
+print(fit4, pars = c("muS", "thetaS", "muNS","thetaNS"), digits = 5)
+```
+
+
+Question (b)
+
+
+```{r}
+mean(extract(fit4, "muS")[[1]]-extract(fit4, "muNS")[[1]] > 1)
+```
+
+Question (c)
+
+```{r}
+mean(extract(fit4, "ps")[[1]])
+mean(extract(fit4, "pns")[[1]])    
+```
+
+
+
+Question (d)
+
+
+```{r}
+plot1 <- extract(fit4, "ys_new")[[1]]
+plot2 <- extract(fit4, "yns_new")[[1]]
+plot1 <- plot1[plot1<30]
+plot2 <- plot2[plot2<30]
+```
+
+
+```{r}
+data_to_plot <- data.frame(ys_new = plot1)
+ggplot() +
+  geom_histogram(data = data_to_plot, aes(x = ys_new, y = after_stat(density)), color = "#FAD510", size =1, binwidth = 1) +
+  ggtitle("Task 3 (d) - Y_Smoking_NEW") +
+  labs(x = "Cycles", y = "Probability")+   scale_x_continuous(n.breaks=30) +
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+
+
+
+```{r}
+data_to_plot <- data.frame(ys_new = plot2)
+ggplot() +
+  geom_histogram(data = data_to_plot, aes(x = ys_new, y = after_stat(density)), color = "#FAD510", size =1, binwidth = 1) +
+  ggtitle("Task 3 (d) - Y_Non-Smoking_NEW") +
+  labs(x = "Cycles", y = "Probability") +   scale_x_continuous(n.breaks=30) +
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "#3F5151"),
+        plot.background = element_rect(fill = "gray86"))  
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

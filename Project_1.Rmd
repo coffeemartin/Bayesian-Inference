@@ -1,0 +1,423 @@
+---
+title: "Assign_1"
+author: "Franco Meng"
+date: "2024-09-01"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+library(rstan)
+library(bayesplot)
+```
+```{r}
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+TASK 1 
+
+```{r}
+
+ y.freq <- c(71, 28, 5, 2, 2, 1)  ## Generate data point by using Douglas Firs data. FS distribution.
+ y.obs <- rep(1:6, times = y.freq)
+ y.obs
+ sum(y.obs)  
+ length(y.obs)  #sample size
+ sum(y.obs) - length(y.obs)
+ table(y.obs)
+
+```
+```{r}
+posterior <- function(p) p^(109+p) * (1-p)^(58-p) #posterior distribution by using likelihood of FS and given prior
+logit <- function(p) log(p/(1-p)) #logit function
+invlogit <- function(lo) 1/(1+exp(-lo)) # back to probability
+curve(x^(109+x)*(1-x)^(58-x), from=0, to=1, n=301, ylab="", xlab="p", 
+      main="Unnormalised posterior")
+```
+
+
+```{r}
+log.posterior <- function(p) (109+p)*log(p) + (58-p)*log(1-p)
+curve(log.posterior(x), from=0, to=1, n=301, ylab="", xlab="p", main="log unomalised posterior")
+```
+
+
+
+```{r}
+
+# Below is the implementation of random walk MH algorithm, starting the chain on p=0.2 as required. 
+# Sigma = 0.01, calculate the acceptance rate.
+
+
+B <- 10000        
+chain <- rep(0, B+1)  
+chain[1] <- 0.2      
+num.accept <- 0     
+sd <- 0.01
+##sd <- 0.15
+for(i in 1:B){
+  ptm1 <- chain[i]      
+  xt <- invlogit(logit(ptm1) + rnorm(1,0,sd))
+  lapt <- log.posterior(xt) - log.posterior(ptm1) + log(xt*(1-xt)) - log(ptm1*(1-ptm1))
+  if( runif(1) <= exp(lapt) ){
+    chain[i+1] <- xt    
+    num.accept <- num.accept + 1 
+  }else
+    chain[i+1] <- ptm1  
+}
+num.accept/B
+mean(chain)
+sd(chain)
+plot(chain, type="l", xlab="t", ylab=expression(p^{(t)}), main="Markov Chain Trace Plot (Sigma = 0.01)")
+ind <- 1:B
+plot(chain[ind], chain[ind+5], xlab="", ylab="", main="Autocorrelation at lag 5 (Sigma = 0.01)")
+
+```
+
+
+
+
+
+```{r}
+
+## Below is the implementation of random walk MH algorithm, starting the chain on p=0.2 as required. 
+## Sigma = 10, calculate the acceptance rate.
+B <- 10000        
+chain <- rep(0, B+1)  
+chain[1] <- 0.2      
+num.accept <- 0     
+sd <- 10
+for(i in 1:B){
+  ptm1 <- chain[i]      
+  xt <- invlogit(logit(ptm1) + rnorm(1,0,sd))
+  lapt <- log.posterior(xt) - log.posterior(ptm1) + log(xt*(1-xt)) - log(ptm1*(1-ptm1))
+  if( runif(1) <= exp(lapt) ){
+    chain[i+1] <- xt    
+    num.accept <- num.accept + 1 
+  }else
+    chain[i+1] <- ptm1  
+}
+num.accept/B
+mean(chain)
+sd(chain)
+plot(chain, type="l", xlab="t", ylab=expression(p^{(t)}), main="Markov Chain Trace Plot (Sigma = 10)")
+ind <- 1:B
+plot(chain[ind], chain[ind+5], xlab="", ylab="", main="Autocorrelation at lag 5 (Sigma = 10)")
+
+```
+
+
+
+
+
+```{r}
+
+## Below is the implementation of random walk MH algorithm, starting the chain on p=0.2 as required. 
+## In order to find the sigma, to get the acceptance rate around 70%
+
+target <- 0.7
+sd <- 0.2
+for (iter in 1:50) {
+    B <- 10000        
+    chain <- rep(0, B+1)  
+    chain[1] <- 0.2      
+    num.accept <- 0     
+    for(i in 1:B){
+      ptm1 <- chain[i]      
+      xt <- invlogit(logit(ptm1) + rnorm(1,0,sd))
+      lapt <- log.posterior(xt) - log.posterior(ptm1) + log(xt*(1-xt)) - log(ptm1*(1-ptm1))
+      if( runif(1) <= exp(lapt) ){
+        chain[i+1] <- xt    
+        num.accept <- num.accept + 1 
+      }else
+        chain[i+1] <- ptm1  
+    }
+    acceptance_rate <- num.accept/B
+    
+    if (abs(acceptance_rate - target)<0.01 ) {
+      break
+    }
+    
+    else if (acceptance_rate > target) {sd <- sd*1.1}
+    
+    else {sd<- sd*0.9}
+    
+    
+}
+num.accept/B
+rounded_sd <- round(sd, digits = 2)
+mean(chain)
+sd(chain)
+plot(chain, type="l", xlab="t", ylab=expression(p^{(t)}), main=paste("Markov Chain Trace Plot (Sigma =",rounded_sd,") Acceptance rate =", num.accept/B ))
+ind <- 1:B
+plot(chain[ind], chain[ind+5], xlab="", ylab="", main="Autocorrelation at lag 5 (Sigma = 0.15)")
+
+```
+
+Task 2. 
+
+
+```{r}
+alpha <- 1
+beta <- 1
+posterior_beta <- function(p) p^(108+alpha) * (1-p)^(57+beta)
+
+curve(x^(108+alpha)*(1-x)^(57+beta), from=0, to=1, n=301, ylab="", xlab="p", 
+      main="Unnormalised posterior - Beta_Prior")
+```
+
+
+```{r}
+log.posterior_beta <- function(p) (108+alpha)*log(p) + (57+beta)*log(1-p)
+curve(log.posterior_beta(x), from=0, to=1, n=301, ylab="", xlab="p", main="Unormalised log posterior - Beta_Prior")
+```
+
+
+
+
+```{r}
+
+## Below showing the trace plot for different alpha and beta.
+
+
+k_seq <- seq(-1, 18, by = 1)
+p_k <- rep(0, length(k_seq))
+log_gammak <- rep(0, length(k_seq))
+for ( ii in 1:length(k_seq)) {
+      alpha <- 2^k_seq[ii]
+      beta <- 2^k_seq[ii]
+      log.posterior_beta <- function(p) (108+alpha)*log(p) + (57+beta)*log(1-p)
+      B <- 10000         
+      chain <- rep(0, B+1)  
+      chain[1] <- 0.2      
+      num.accept <- 0     
+      sd <- 0.1
+      for(i in 1:B){
+        ptm1 <- chain[i]      
+        xt <- invlogit(logit(ptm1) + rnorm(1,0,sd))
+        lapt <- log.posterior_beta(xt) - log.posterior_beta(ptm1) + log(xt*(1-xt)) - log(ptm1*(1-ptm1))
+        if( runif(1) <= exp(lapt) ){
+          chain[i+1] <- xt    
+          num.accept <- num.accept + 1 
+        }else
+          chain[i+1] <- ptm1  
+      }
+  plot(chain, type="l", xlab="t", ylab=expression(p^{(t)}),main= bquote(paste("Trace plot of Markov Chain & Beta_Prior,",alpha,"=", beta, "=", .(alpha) , " ")) , cex.main=1 )
+  p_k[ii] <- mean(chain[1000:B])
+  print(alpha)
+  log_gammak[ii] <- log(alpha)
+      
+}
+```
+```{r,fig.dim = c(8, 6)}
+#p_k
+#log_gammak
+data_to_plot <- data.frame(estimate_probability = p_k, log_gamma_k = log_gammak)
+#data_to_plot
+ggplot(data_to_plot) +
+     geom_point(aes(x = log_gamma_k, y= estimate_probability), color = "#FAD510", size =2) + ggtitle(bquote(paste("Bayesian Estimates of P against log (", gamma," ",kappa , ")"))) +
+  labs(x = bquote(log(gamma ~ kappa)), y = "Bayesian Estimates of P") + 
+  theme(plot.title = element_text(hjust = 0.5), panel.background = element_rect(fill = "#3F5151"),plot.background = element_rect(fill = "gray86"))  
+
+
+```
+
+
+
+
+```{r}
+## Below calculate the intergrand in order to plot posteria and prior distribution in the same scale same plot
+
+for ( ii in 1:length(k_seq)) {
+
+alpha <-2^k_seq[ii]
+beta <- 2^k_seq[ii]
+p = seq(0,1, length=100)
+integrand<-function(x)x^(108+alpha)*(1-x)^(57+beta)
+print(integrate(integrand, lower= 0,upper=1)$value)
+}
+```
+
+
+```{r}
+for ( ii in 1:length(k_seq)) {
+
+alpha <-2^k_seq[ii]
+beta <- 2^k_seq[ii]
+p = seq(0,1, length=100)
+#plot(p, dbeta(p, alpha, beta), type='l')
+integrand<-function(x)x^(108+alpha)*(1-x)^(57+beta)
+norm.const<-integrate(integrand, lower= 0,upper=1)$value
+curve(dbeta(x, alpha, beta),from=0,to =1,n=1201,col="red",ylab="", ylim = c(0,dbeta(0.5, alpha, beta)+10),main= bquote(paste("Normalised posterior & Beta_Prior  ", alpha, "=", beta, "=", .(alpha) , " ") ), cex.main=1 )
+ifelse(norm.const==0, curve(x^(108+alpha)*(1-x)^(57+beta), add = TRUE, from=0, to=1, n=601, ylab="", xlab="p"), curve(x^(108+alpha)*(1-x)^(57+beta)/norm.const, from=0, to=1, n=301, ylab="", xlab="p", add = TRUE))
+
+
+}
+```
+
+TASK 3
+
+
+```{r}
+y <- c(16,9,10,13,19,20,18,17,35,55)
+m <- c(74,99,58,70,122,77,104,129,308,119)
+N <- length(y)
+#dbinom(yi, size = mi, prob = 0.4)
+
+data.in <- list(N=N, y=y, m=m)
+data.in
+```
+
+
+```{stan Bin_beta_p, output.var="Bin_beta_p", cache=TRUE}
+data {
+  int <lower=1> N;        
+  int <lower=0> y[N];    
+  int <lower=1> m[N];    
+}
+
+parameters {
+  real <lower=0, upper=1> p;  // probability of success (binomial parameter)
+}
+
+model {
+  // likelihood
+  for (i in 1:N) {
+    y[i] ~ binomial(m[i], p);  // binomial likelihood
+  }
+
+  // prior
+  p ~ beta(1, 1);  
+}
+```
+
+
+
+```{r}
+model.fit1 <- sampling(Bin_beta_p, data=data.in)
+print(model.fit1, pars="p", probs=c(0.1,0.5,0.9),digits=5)
+```
+
+
+```{r}
+check_hmc_diagnostics(model.fit1)
+```
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+posterior <- as.array(model.fit1)
+color_scheme_set("red")
+mcmc_intervals(posterior, pars="p", point_est = "mean")
+```
+
+
+
+
+
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+mcmc_areas(posterior, pars="p", point_est="mean")
+```
+```{r, out.width="0.8\\textwidth", fig.align='center'}
+color_scheme_set("mix-blue-red")
+mcmc_trace(posterior, pars="p")
+mcmc_acf(posterior, pars="p")
+```
+
+
+
+
+
+
+
+```{stan Bin_beta_pi, output.var="Bin_beta_pi", cache=TRUE}
+data {
+  int <lower=1> N;        // number of observations
+  int <lower=0> y[N];     // number of successes
+  int <lower=1> m[N];     // number of trials
+}
+
+parameters {
+  real <lower=0, upper=1> pis[N];  // probability of success (binomial parameter)
+}
+
+model {
+  // likelihood
+  for (i in 1:N) {
+    y[i] ~ binomial(m[i], pis[i]);  // binomial likelihood
+  }
+
+  // prior
+  pis ~ beta(1, 1);  // uniform prior over (0, 1)
+}
+
+generated quantities {
+  real r; 
+  r = min(pis) / max(pis);
+  real r_mean; 
+  r_mean = mean(pis);
+  
+}
+
+
+
+```
+
+
+
+```{r}
+model.fit2 <- sampling(Bin_beta_pi, data=data.in , iter = 4000)
+print(model.fit2, pars=c("pis","r","r_mean"),digits=5)
+```
+
+
+```{r}
+posterior_r <- extract(model.fit2)$r
+r_estimate <- mean(posterior_r)
+r_estimate
+posterior_r_mean <- extract(model.fit2)$r_mean
+r_estimate_mean <- mean(posterior_r_mean)
+r_estimate_mean
+
+```
+```{r}
+pis_test <- extract(model.fit2)$pis
+pis_test[1,]
+posterior_r[1]
+```
+
+
+
+```{r}
+get_posterior_mean(model.fit2, pars = "r")
+```
+
+```{r,fig.dim = c(8, 6)}
+plot(density(posterior_r), main="Posterior Density of r", xlab="r", ylab="Density")
+abline(v=r_estimate, col="blue", lwd=2, lty=2) 
+
+data_to_plot_2 <- data.frame(r = posterior_r)
+ggplot(data_to_plot_2, aes(x=r)) + geom_density(color="darkblue", fill="#FAD510", alpha = 0.8) + geom_vline(aes(xintercept=r_estimate),
+            color="blue", linetype="dashed", linewidth=1) + ggtitle(paste("Posterior Density of r"))  + 
+theme(plot.title = element_text(hjust = 0.5),panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_rect(fill = "#3F5151"),plot.background = element_rect(fill = "gray86"))  
+
+
+
+
+#plot(density(posterior_r_mean), main="Posterior Density of r", xlab="r", ylab="Density")
+#abline(v=r_estimate_mean, col="blue", lwd=2, lty=2) 
+```
+
+
+
+
+
+
+
